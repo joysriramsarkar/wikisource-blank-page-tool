@@ -1,0 +1,212 @@
+
+import re
+import time
+import pywikibot
+
+# ==========================================
+# CONFIGURATION: শুধু PDF_NAME বদলাবে
+# ==========================================
+
+site = pywikibot.Site('bn', 'wikisource')
+
+PDF_NAME = 'আলো - জগদানন্দ রায় (১৯২৬).pdf'
+USERNAME = 'জয়শ্রীরাম সরকার'
+
+# প্রথমে True রাখবে
+DRY_RUN = True
+
+# কোন কোন চিহ্ন লেখাবিহীন Scan বোঝাবে
+BLANK_MARKERS = {'—', '-'}
+
+BN_TO_EN = str.maketrans(
+    '০১২৩৪৫৬৭৮৯',
+    '0123456789'
+)
+
+EN_TO_BN = str.maketrans(
+    '0123456789',
+    '০১২৩৪৫৬৭৮৯'
+)
+
+# ==========================================
+# ১. INDEX PAGE
+# ==========================================
+
+index_page = pywikibot.Page(
+    site,
+    f'নির্ঘণ্ট:{PDF_NAME}'
+)
+
+if not index_page.exists():
+    raise RuntimeError(
+        f"Index পাতা পাওয়া যায়নি: {PDF_NAME}"
+    )
+
+index_text = index_page.text
+
+print("Index:", index_page.title())
+print("Text length:", len(index_text))
+
+# ==========================================
+# ২. PAGELIST TAG খোঁজা
+# ==========================================
+
+pagelist_tags = re.findall(
+    r'<pagelist\b([^>]*)/?>',
+    index_text,
+    re.IGNORECASE | re.DOTALL
+)
+
+if not pagelist_tags:
+    raise RuntimeError("কোনো pagelist পাওয়া যায়নি!")
+
+print("Pagelist tags:", len(pagelist_tags))
+
+# ==========================================
+# ৩. PAGELIST ATTRIBUTES PARSE
+# ==========================================
+
+attribute_pattern = re.compile(
+    r"""(\d+)(?:\s*to\s*(\d+))?\s*=\s*
+        (["'])(.*?)(\3)""",
+    re.IGNORECASE | re.DOTALL | re.VERBOSE
+)
+
+blank_pdf_pages = set()
+
+for params in pagelist_tags:
+
+    params = params.translate(BN_TO_EN)
+
+    for match in attribute_pattern.finditer(params):
+
+        start = int(match.group(1))
+        end = match.group(2)
+        value = match.group(4).strip()
+
+        # নির্ধারিত Blank Marker কিনা পরীক্ষা
+        if value not in BLANK_MARKERS:
+            continue
+
+        if end:
+            blank_pdf_pages.update(
+                range(start, int(end) + 1)
+            )
+        else:
+            blank_pdf_pages.add(start)
+
+blank_pdf_pages = sorted(blank_pdf_pages)
+
+print("\nলেখাবিহীন Scan:", blank_pdf_pages)
+print("মোট:", len(blank_pdf_pages))
+
+if not blank_pdf_pages:
+    raise RuntimeError(
+        "কোনো লেখাবিহীন পাতা পাওয়া যায়নি। "
+        "Pagelist-এর চিহ্ন পরীক্ষা করো।"
+    )
+
+# ==========================================
+# ৪. QUALITY LEVEL পরীক্ষা
+# ==========================================
+
+quality_pattern = re.compile(
+    r'<pagequality\b[^>]*\blevel\s*=\s*["\']?(\d+)',
+    re.IGNORECASE
+)
+
+created = 0
+already_blank = 0
+existing_other = 0
+failed = 0
+
+# ==========================================
+# ৫. PAGE CREATE / SKIP
+# ==========================================
+
+for pdf_num in blank_pdf_pages:
+
+    # বাংলা সংখ্যা ব্যবহার
+    bn_num = str(pdf_num).translate(EN_TO_BN)
+
+    page_title = f'পাতা:{PDF_NAME}/{bn_num}'
+
+    page = pywikibot.Page(site, page_title)
+
+    # আগে থেকেই পাতা থাকলে পরীক্ষা
+    if page.exists():
+
+        existing_text = page.text
+
+        quality = quality_pattern.search(existing_text)
+
+        if quality and quality.group(1) == '0':
+
+            print(
+                f"ALREADY BLANK: {page_title}"
+            )
+
+            already_blank += 1
+            continue
+
+        # অন্য কোনো অবস্থায় পুরোনো পাতা পরিবর্তন নয়
+        print(
+            f"EXISTS - MANUAL CHECK: {page_title}"
+        )
+
+        existing_other += 1
+        continue
+
+    # নতুন পাতার Content
+    content = (
+        f'<noinclude>'
+        f'<pagequality level="0" user="{USERNAME}" />'
+        f'</noinclude>'
+    )
+
+    if DRY_RUN:
+
+        print(f"WOULD CREATE: {page_title}")
+        created += 1
+        continue
+
+    # ======================================
+    # SAVE
+    # ======================================
+
+    try:
+
+        page.text = content
+
+        page.save(
+            summary='বট: নির্ঘণ্ট অনুযায়ী লেখাবিহীন পাতা চিহ্নিত করা হলো'
+        )
+
+        print(f"CREATED: {page_title}")
+
+        created += 1
+
+        # সার্ভারকে বিরতি দেওয়া
+        time.sleep(10)
+
+    except Exception as error:
+
+        print(f"FAILED: {page_title} -> {error}")
+        failed += 1
+
+# ==========================================
+# ৬. FINAL REPORT
+# ==========================================
+
+print("\n========== REPORT ==========")
+print("নতুন পাতা:", created)
+print("আগে থেকেই লেখাবিহীন:", already_blank)
+print("অন্যান্য বিদ্যমান পাতা:", existing_other)
+print("ব্যর্থ:", failed)
+
+if DRY_RUN:
+    print("\nএটি শুধু Preview ছিল।")
+    print("যাচাই করে DRY_RUN = False করো।")
+
+else:
+    print("\nকাজ সম্পন্ন হয়েছে!")
