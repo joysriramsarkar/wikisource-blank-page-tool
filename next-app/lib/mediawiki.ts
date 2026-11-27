@@ -310,7 +310,13 @@ function cookieHeader(cookies: Record<string, string>): string {
 
 function absorbCookies(jar: Record<string, string>, response: Response): void {
   const headers = response.headers as Headers & { getSetCookie?: () => string[] };
-  const setCookies = headers.getSetCookie?.() ?? [];
+  let setCookies = headers.getSetCookie?.() ?? [];
+  if (!setCookies.length) {
+    const combined = response.headers.get("set-cookie");
+    if (combined) {
+      setCookies = combined.split(/,(?=\s*[^;,]+=)/);
+    }
+  }
   for (const raw of setCookies) {
     const pair = raw.split(";")[0] ?? "";
     const index = pair.indexOf("=");

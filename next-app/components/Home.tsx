@@ -312,6 +312,7 @@ export default function Home() {
     setFilter("all");
     setSelected(new Set(data.pages.filter(isActionable).map((page) => page.num)));
     setViewed(new Set());
+    setManualDone(new Set());
     setBrowsePage(0);
     setError(null);
     setAnalyzing(false);
