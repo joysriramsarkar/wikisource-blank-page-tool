@@ -1086,6 +1086,13 @@ export default function Home() {
             <div className="message-copy">
               <h2>বিশ্লেষণ করা যায়নি</h2>
               <p>{error.message}</p>
+              <button
+                type="button"
+                className="button ghost small"
+                onClick={() => void analyze(input, currentWiki)}
+              >
+                আবার চেষ্টা করুন
+              </button>
               {error.suggestions.length ? (
                 <div className="suggestions">
                   {error.suggestions.map((title) => (

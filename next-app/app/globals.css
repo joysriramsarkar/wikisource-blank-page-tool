@@ -852,6 +852,10 @@ a:hover {
   font-size: 13.5px;
 }
 
+.message-copy .button {
+  margin-top: 12px;
+}
+
 .suggestions {
   display: flex;
   flex-wrap: wrap;

@@ -11,11 +11,12 @@ import type {
 export const DEFAULT_WIKI = "https://bn.wikisource.org";
 export const USER_AGENT =
   process.env.WIKI_USER_AGENT ||
-  "WikisourceBlankPageTool/2.0 (Next.js proofreading helper)";
+  "WikisourceBlankPageTool/2.0 (https://github.com/joysriramsarkar/wikisource-blank-page-tool)";
 
 const DEFAULT_TIMEOUT = 45_000;
+const MAX_GET_URL = 2000;
 const MAX_EXISTING_PAGES = 5000;
-const PAGE_BATCH = 40;
+const PAGE_BATCH = 50;
 const THUMB_WIDTH = 500;
 const FULL_WIDTH = 1280;
 
@@ -439,23 +440,27 @@ export class WikiClient {
     };
     if (options.write) payload.maxlag = 5;
     const retries = options.retries ?? 4;
+    let forcePost = method === "POST";
 
     for (let attempt = 0; attempt < retries; attempt += 1) {
       let response: Response;
+      const query = paramsToSearch(payload);
+      const getUrl = `${site.api}?${query}`;
+      const usePost = forcePost || getUrl.length > MAX_GET_URL;
       try {
-        if (method === "POST") {
+        if (usePost) {
           response = await fetch(site.api, {
             method: "POST",
             headers: {
               ...this.headers(),
               "Content-Type": "application/x-www-form-urlencoded",
             },
-            body: paramsToSearch(payload),
+            body: query,
             signal: AbortSignal.timeout(DEFAULT_TIMEOUT),
             cache: "no-store",
           });
         } else {
-          response = await fetch(`${site.api}?${paramsToSearch(payload)}`, {
+          response = await fetch(getUrl, {
             headers: this.headers(),
             signal: AbortSignal.timeout(DEFAULT_TIMEOUT),
             cache: "no-store",
@@ -472,13 +477,17 @@ export class WikiClient {
         });
       }
       absorbCookies(this.cookies, response);
+      if (response.status === 414 && !forcePost) {
+        forcePost = true;
+        continue;
+      }
       if (response.status === 429) {
         if (attempt < retries - 1) {
           const header = Number(response.headers.get("retry-after"));
           const wait =
             Number.isFinite(header) && header > 0
-              ? Math.min(header, 20)
-              : 2 * (attempt + 1);
+              ? Math.min(header, 30)
+              : Math.min(5 * (attempt + 1), 30);
           await sleep(wait * 1000);
           continue;
         }
