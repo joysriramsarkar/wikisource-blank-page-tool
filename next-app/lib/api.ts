@@ -18,6 +18,7 @@ export function jsonError(error: unknown, status = 400): NextResponse {
     );
   }
   if (error instanceof WikiError) {
+    const code = error.code === "ratelimited" ? 429 : status;
     return NextResponse.json(
       {
         error: error.message,
@@ -25,7 +26,7 @@ export function jsonError(error: unknown, status = 400): NextResponse {
         details: error.details,
         suggestions: error.suggestions ?? [],
       },
-      { status },
+      { status: code },
     );
   }
   console.error(error);

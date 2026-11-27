@@ -438,7 +438,7 @@ export class WikiClient {
       formatversion: 2,
     };
     if (options.write) payload.maxlag = 5;
-    const retries = options.retries ?? 3;
+    const retries = options.retries ?? 4;
 
     for (let attempt = 0; attempt < retries; attempt += 1) {
       let response: Response;
@@ -472,7 +472,22 @@ export class WikiClient {
         });
       }
       absorbCookies(this.cookies, response);
-      if (response.status === 429 || response.status >= 500) {
+      if (response.status === 429) {
+        if (attempt < retries - 1) {
+          const header = Number(response.headers.get("retry-after"));
+          const wait =
+            Number.isFinite(header) && header > 0
+              ? Math.min(header, 20)
+              : 2 * (attempt + 1);
+          await sleep(wait * 1000);
+          continue;
+        }
+        throw new WikiError(
+          "উইকি সার্ভার এখন অনেক অনুরোধ পাচ্ছে (রেট লিমিট)। কয়েক সেকেন্ড অপেক্ষা করে আবার “বিশ্লেষণ করুন” চাপুন।",
+          { code: "ratelimited" },
+        );
+      }
+      if (response.status >= 500) {
         if (attempt < retries - 1) {
           await sleep(1000 * (attempt + 1));
           continue;
@@ -564,6 +579,7 @@ export class WikiClient {
       for (const page of data.query?.pages ?? []) {
         results.push(this.normalizePage(page));
       }
+      if (offset + PAGE_BATCH < unique.length) await sleep(120);
     }
     return results;
   }
